@@ -1,0 +1,20 @@
+{
+    "name": "@roney492/wappler_sc_bull_queues",
+    "version": "0.0.1",
+    "type": "module",
+    "description": "Allows for the creation of one to many queues to offload the execution of Wappler library tasks, original repo: https://github.com/mebeingken/wappler-bull-queues",
+    "license": "MIT",
+    "author": {
+        "name": "roney492",
+        "url": "https://github.com/roney492"
+    },
+    "keywords": [
+        "wappler-extension",
+        "server-connect",
+        "wappler-sc-bull-queues"
+    ],
+    "scripts": {
+        "build": "rollup --config",
+        "publish-dry-run": "npm publish ./dist --access public --dry-run"
+    }
+}
