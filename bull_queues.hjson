@@ -71,6 +71,14 @@
           serverDataBindings: true,
           defaultValue: 'false',
 	        help: 'True enables integrated Bull job logging to Redis (ie. for Bull Board)'
+        },
+        { 
+          name: 'opensearch_logging',
+          optionName: 'opensearch_logging', 
+          title: 'Enable Opensearch Logging', 
+          type: 'boolean',
+          defaultValue: 'false',
+	        help: 'Enables logging to Opensearch'
         }
         ]
       }

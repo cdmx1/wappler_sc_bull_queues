@@ -9,6 +9,7 @@ const bullLogging = require('./bull_logging.js');
 var console_logging = 'error';
 var file_logging = 'none';
 var bullLog = false;
+var opensearch_logging = false;
 var bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQueue");
 
 const defaultConcurrency = 5;
@@ -21,7 +22,7 @@ if (process.env.REDIS_HOST || typeof global.redisClient !== 'undefined') {
 
 const defaultQueueOptions = {
     redis: {
-        port: process.env.REDIS_PORT || global.redisClient ? global.redisClient.options.port : {},
+        port: process.env.REDIS_PORT || global.redisClient ? global.redisClient.options.socket.port : {},
         host: process.env.REDIS_HOST ||
             (global.redisClient ?
                 (global.redisClient.options.host ?
@@ -64,11 +65,9 @@ exports.bq_logging = async function(options) {
     console_logging = this.parseOptional(options.console_logging, 'string', 'error');
     file_logging = this.parseOptional(options.file_logging, 'string', 'none');
     bullLog = this.parseOptional(options.bull_logging, 'boolean', false);
-
-    bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQ");
-
+    opensearch_logging = this.parseOptional(options.opensearch_logging, 'boolean', false);
+    bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQ", opensearch_logging);
     bq_logger.info('Logging configuration updated');
-
     return { "response": 'Logging configuration updated' }
 }
 
@@ -544,7 +543,7 @@ exports.add_job = async function(options) {
                 jobData: jobData,
                 action: libraryName,
                 bullLog: bullLog,
-                loggerOptions: { console_logging: console_logging, file_logging: file_logging }
+                loggerOptions: { console_logging: console_logging, file_logging: file_logging, opensearch_logging: opensearch_logging}
             }, {
                 delay: delay_ms,
                 removeOnComplete: remove_on_complete,
@@ -611,7 +610,7 @@ exports.add_job_api = async function(options) {
                     action: apiName,
                     baseURL: base_url,
                     bullLog: bullLog,
-                    loggerOptions: { console_logging: console_logging, file_logging: file_logging }
+                    loggerOptions: { console_logging: console_logging, file_logging: file_logging, opensearch_logging: opensearch_logging}
                 }, {
                     delay: delay_ms,
                     removeOnComplete: remove_on_complete,
