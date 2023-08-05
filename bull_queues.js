@@ -11,7 +11,6 @@ var console_logging = 'error';
 var file_logging = 'none';
 var bullLog = false;
 var opensearch_logging = false;
-var opensearch_logging = false;
 var bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQueue");
 
 const defaultConcurrency = 5;
