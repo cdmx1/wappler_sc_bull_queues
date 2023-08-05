@@ -10,27 +10,30 @@ module.exports = async (job, done) => {
     const logger = bullLogging.setupWinston(
         loggerOptions.console_logging,
         loggerOptions.file_logging,
-        'BullQLibraryJob'
+        'BullQLibraryJob',
+        loggerOptions.opensearch_logging
     );
 
     logger.debug(`Processing job ${job.id} with library: ${action}`);
 
     if (bullLog) {
-        await job.log(`Processing job ${job.id} with library: ${action}`);
-        await job.log(`Sending request to library: ${action} with data: ${JSON.stringify(job)}`);
-    }
+        const logJobProcessing = `Processing job ${job.id} with library: ${action}`;
+        // const logRequestSending = `Sending request to library: ${action} with data: ${JSON.stringify(job)}`;
 
+        logger.info({ job_id: job.id, action, message: logJobProcessing });
+        logger.info(job);
+    }
     const app = new App({ params: job, session: {}, cookies: {}, signedCookies: {}, query: {}, headers: {} });
     const actionFile = await fs.readJSON(`app/modules/lib/${action}.json`);
 
     app
         .define(actionFile, true)
         .then(() => {
-            logger.info(`Job ${job.id} completed successfully`);
+            logger.info({ job_id: job.id, message: "Job completed successfully" })
             done();
         })
         .catch((err) => {
-            logger.error(`Job ${job.id} failed with error: ${err.message}`);
+            logger.error({ job_id: job.id, message: err.message });
             done(err);
         });
 };

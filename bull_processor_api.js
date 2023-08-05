@@ -6,7 +6,7 @@ module.exports = async (job, done) => {
         const { bullLog, loggerOptions, action, jobData, baseURL } = job.data;
         job = { ...job, ...jobData };
 
-        const bc_logger = bullLogging.setupWinston(loggerOptions.console_logging, loggerOptions.file_logging, "BullQAPIJob");
+        const bc_logger = bullLogging.setupWinston(loggerOptions.console_logging, loggerOptions.file_logging, "BullQAPIJob", loggerOptions.opensearch_logging);
 
         const apiURL = baseURL + action;
 
@@ -32,15 +32,13 @@ module.exports = async (job, done) => {
                     job.log(`Job ${job.id} completed successfully. Response: ${JSON.stringify(response.data)}`)
                 }
                 done()
-
-
             })
             .catch((err) => {
 
-                bc_logger.error(`Job ${job.id} failed with error: ${err.message}`);
+                bc_logger.error({ job_id: job.id, message: err.message });
 
                 if (bullLog) {
-                    job.log(`Job ${job.id} failed with error: ${err.message}`)
+                    job.log({ job_id: job.id, message: err.message });
                 }
 
                 done(err);
@@ -48,10 +46,10 @@ module.exports = async (job, done) => {
 
             });
     } catch (error) {
-        bc_logger.error(`Job ${job.id} failed with error: ${error.message}`);
+        bc_logger.error({ job_id: job.id, message: error.message });
 
         if (bullLog) {
-            await job.log(`Job ${job.id} failed with error: ${error.message}`)
+            await job.log({ job_id: job.id, message: error.message });
         }
 
         done(error);
