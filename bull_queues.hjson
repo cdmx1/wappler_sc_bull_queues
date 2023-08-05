@@ -71,6 +71,14 @@
           serverDataBindings: true,
           defaultValue: 'false',
 	        help: 'True enables integrated Bull job logging to Redis (ie. for Bull Board)'
+        },
+        { 
+          name: 'opensearch_logging',
+          optionName: 'opensearch_logging', 
+          title: 'Enable Opensearch Logging', 
+          type: 'boolean',
+          defaultValue: 'false',
+	        help: 'Enables logging to Opensearch'
         }
         ]
       }
@@ -509,16 +517,174 @@
             serverDataBindings: true,
             help: 'Number of attempts to process job.'
         },
-        { 
-            name: 'remove_on_complete', 
-            optionName: 'remove_on_complete', 
-            title: 'Remove on complete', 
-            type: 'boolean', 
-            required: false, 
-            defaultValue: false,
-            serverDataBindings: true,
-            help: 'If ticked, removes the job from the queue if successfully completed.'
-        }
+        {
+            "name": "attempts_delay",
+            "optionName": "attempts_delay",
+            "title": "Delay Between Attempts",
+            "type": "text",
+            "required": false,
+            "defaultValue": "0",
+            "serverDataBindings": true,
+            "help": "Specify the delay (in milliseconds) between job attempts."
+          },
+          {
+            "name": "backoff_type",
+            "optionName": "backoff_type",
+            "title": "Backoff Strategy",
+            "type": "droplist",
+            "required": false,
+            "values": [
+              {
+                "title": "Fixed",
+                "value": "fixed"
+              },
+              {
+                "title": "Exponential",
+                "value": "exponential"
+              }
+            ],
+            "defaultValue": "fixed",
+            "required": false,
+            "serverDataBindings": true,
+            "help": "Choose the backoff strategy for retry attempts. 'Fixed' strategy will retry attempts after a fixed delay. 'Exponential' strategy will increase the delay exponentially.",
+            "show": [
+              "attempts"
+            ]
+        },
+        {
+            "name": "remove_on_complete",
+            "optionName": "remove_on_complete",
+            "title": "Remove on complete",
+            "type": "boolean",
+            "required": false,
+            "defaultValue": false,
+            "serverDataBindings": true,
+            "help": "If ticked, removes the job from the queue if successfully completed.",
+            "show": [
+              "keep_completed_jobs"
+            ]
+          },
+          {
+            "name": "keep_completed_jobs",
+            "optionName": "keep_completed_jobs",
+            "title": "Keep completed jobs",
+            "type": "numberorstring",
+            "required": false,
+            "defaultValue": false,
+            "serverDataBindings": true,
+            "initDisplay": "none",
+            "help": "Keep the defined number of completed jobs in the queue."
+          },
+          {
+            "name": "remove_on_fail",
+            "optionName": "remove_on_fail",
+            "title": "Remove on fail",
+            "type": "boolean",
+            "required": false,
+            "defaultValue": false,
+            "serverDataBindings": true,
+            "help": "If ticked, removes the job from the queue if the job failed.",
+            "show": [
+              "keep_failed_jobs"
+            ]
+          },
+          {
+            "name": "keep_failed_jobs",
+            "optionName": "keep_failed_jobs",
+            "title": "Keep failed jobs",
+            "type": "numberorstring",
+            "required": false,
+            "defaultValue": false,
+            "serverDataBindings": true,
+            "initDisplay": "none",
+            "help": "Keep the defined number of failed jobs in the queue."
+          },
+          {
+            "name": "repeatable",
+            "optionName": "repeatable",
+            "title": "Repeatable",
+            "type": "boolean",
+            "defaultValue": false,
+            "serverDataBindings": true,
+            "help": "If ticked, the job will repeat according to the specified pattern or interval.",
+            "show": [
+              "repeat_type"
+            ]
+          },
+          {
+            "name": "repeat_type",
+            "optionName": "repeat_type",
+            "title": "Repeat Type",
+            "type": "droplist",
+            "values": [
+              {
+                "title": "Cron",
+                "value": "cron",
+                "show": [
+                  "repeat_job_name",
+                  "repeat_pattern"
+                ],
+                "hide": [
+                  "repeat_limit",
+                  "repeat_interval"
+                ]
+              },
+              {
+                "title": "Interval",
+                "value": "interval",
+                "show": [
+                  "repeat_job_name",
+                  "repeat_limit",
+                  "repeat_interval"
+                ],
+                "hide": [
+                  "repeat_pattern"
+                ]
+              }
+            ],
+            "defaultValue": "",
+            "help": "Choose the repeat type."
+          },
+          {
+            "name": "repeat_job_name",
+            "optionName": "repeat_job_name",
+            "title": "Repeat Job Name",
+            "type": "text",
+            "required": false,
+            "serverDataBindings": true,
+            "initDisplay": "none",
+            "help": "Provide a name for the job. This is especially useful for repeatable jobs that may need to be removed later."
+          },
+          {
+            "name": "repeat_pattern",
+            "optionName": "repeat_pattern",
+            "title": "Repeat Pattern",
+            "type": "text",
+            "required": false,
+            "serverDataBindings": true,
+            "help": "Specify a cron pattern for job repetition. This will be ignored if the repeat interval is provided.",
+            "initDisplay": "none"
+          },
+          {
+            "name": "repeat_interval",
+            "optionName": "repeat_interval",
+            "title": "Repeat Interval",
+            "type": "numberorstring",
+            "required": false,
+            "serverDataBindings": true,
+            "help": "Specify a fixed interval (in milliseconds) for job repetition. This will be ignored if the repeat pattern is provided.",
+            "initDisplay": "none"
+          },
+          {
+            "name": "repeat_limit",
+            "optionName": "repeat_limit",
+            "title": "Repeat Limit",
+            "type": "numberorstring",
+            "required": false,
+            "serverDataBindings": true,
+            "help": "Specify the maximum number of times the job should repeat.",
+            "initDisplay": "none"
+          }
         ]
       }
       
@@ -808,6 +974,86 @@
       ]
     }
   ]
+},{
+  type: 'bull_queues_get_all_jobs',
+  module : 'bull_queues',
+  action : 'get_all_jobs',
+  groupTitle : 'Bull Queues',
+  groupIcon : 'fas fa-skull-cow comp-exec',
+  title : 'Get all jobs @@var(actionName)@@',
+  icon : 'fad fa-album-collection comp-exec',
+  usedModules : {
+			node: {
+				  "bull": "^4.10.4",
+          "winston": "^3.8.2",
+          "winston-daily-rotate-file": "^4.7.1"
+			}
+		},
+  dataPickObject: true,
+  dataScheme: [
+    {
+        name: 'jobs', 
+        type: 'array'}
+  ],
+  properties : [
+    {
+        group: 'Step properties',
+        variables: [
+            { 
+            name: 'actionName', 
+            optionName: 'name', 
+            title: 'Name', 
+            type: 'text', 
+            required: true, 
+            defaultValue: ''
+        },
+        
+        { 
+            name: 'output', 
+            optionName: 'output', 
+            title: 'Output', 
+            type: 'boolean', 
+            defaultValue: false 
+        }
+        ]
+      },
+      {
+      group: 'Queue config',
+      variables: [
+        { 
+            name: 'queue_name', 
+            optionName: 'queue_names', 
+            title: 'Queue names', 
+            type: 'text', 
+            required: false, 
+            defaultValue: '',
+            serverDataBindings: true,
+            help: 'Select the queue.'
+        },
+        
+        { 
+            name: 'job_status', 
+            optionName: 'job_status', 
+            title: 'Job status', 
+            type: 'droplist', 
+            values: [
+                {title: 'All', value: 'all' },
+                {title: 'Active', value: 'active' },
+                {title: 'Completed', value: 'completed' },
+                {title: 'Delayed', value: 'delayed' },
+                {title: 'Failed', value: 'failed' },
+                {title: 'Waiting', value: 'waiting' }
+               
+                
+            ], 
+            required: true, 
+            defaultValue: 'active',
+            serverDataBindings: true,
+            help: 'Select the status.'
+        }
+      ]
+    }
+  ]
 },
 {
   type: 'bull_queues_job_state',
@@ -882,6 +1128,128 @@
     
   ]
 },
+{
+    "type": "bull_queues_get_repeatable_jobs",
+    "module": "bull_queues",
+    "action": "get_repeatable_jobs",
+    "groupTitle": "Bull Queues",
+    "groupIcon": "fas fa-skull-cow comp-exec",
+    "title": "Get repeatable jobs @@var(actionName)@@",
+    "icon": "fad fa-album-collection comp-exec",
+    "dataPickObject": true,
+    "dataScheme": [
+      {
+        "name": "jobs",
+        "type": "array"
+      }
+    ],
+    "properties": [
+      {
+        "group": "Step properties",
+        "variables": [
+          {
+            "name": "actionName",
+            "optionName": "name",
+            "baseName": "getRepeatableJobs",
+            "title": "Name",
+            "type": "text",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "output",
+            "optionName": "output",
+            "title": "Output",
+            "type": "boolean",
+            "defaultValue": false
+          }
+        ]
+      },
+      {
+        "group": "Queue config",
+        "variables": [
+          {
+            "name": "queue_name",
+            "optionName": "queue_name",
+            "title": "Queue name",
+            "type": "text",
+            "required": true,
+            "defaultValue": "",
+            "serverDataBindings": true,
+            "help": "Select the queue."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "type": "bull_queues_remove_repeatable_jobs",
+    "module": "bull_queues",
+    "action": "remove_repeatable_job",
+    "groupTitle": "Bull Queues",
+    "groupIcon": "fas fa-skull-cow comp-exec",
+    "title": "Remove repeatable job @@var(actionName)@@",
+    "icon": "fad fa-trash-alt comp-exec",
+    "dataPickObject": true,
+    "dataScheme": [
+      {
+        "name": "success",
+        "type": "boolean"
+      },
+      {
+        "name": "error",
+        "type": "text"
+      }
+    ],
+    "properties": [
+      {
+        "group": "Step properties",
+        "variables": [
+          {
+            "name": "actionName",
+            "optionName": "name",
+            "baseName": "removeRepeatableJob",
+            "title": "Name",
+            "type": "text",
+            "required": true,
+            "defaultValue": ""
+          },
+          {
+            "name": "output",
+            "optionName": "output",
+            "title": "Output",
+            "type": "boolean",
+            "defaultValue": false
+          }
+        ]
+      },
+      {
+        "group": "Queue config",
+        "variables": [
+          {
+            "name": "queue_name",
+            "optionName": "queue_name",
+            "title": "Queue name",
+            "type": "text",
+            "required": true,
+            "defaultValue": "",
+            "serverDataBindings": true,
+            "help": "Select the queue."
+          },
+          {
+            "name": "job_name",
+            "optionName": "job_name",
+            "title": "Job Name",
+            "type": "text",
+            "required": true,
+            "defaultValue": "",
+            "serverDataBindings": true,
+            "help": "Name of the job to be removed."
+          }
+        ]
+      }
+    ]
+  },
 {
   type: 'bull_queues_retry_job',
   module : 'bull_queues',

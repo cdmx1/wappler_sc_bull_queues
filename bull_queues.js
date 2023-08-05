@@ -1,5 +1,6 @@
 // JavaScript Document
-// Ken Truesdale - ken@uniqueideas.com
+// Orignal code by: Ken Truesdale
+// Modified verison maintained by: Roney Dsilva
 
 const { toSystemPath } = require('../../../lib/core/path');
 const Queue = require('bull');
@@ -9,6 +10,7 @@ const bullLogging = require('./bull_logging.js');
 var console_logging = 'error';
 var file_logging = 'none';
 var bullLog = false;
+var opensearch_logging = false;
 var bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQueue");
 
 const defaultConcurrency = 5;
@@ -21,7 +23,7 @@ if (process.env.REDIS_HOST || typeof global.redisClient !== 'undefined') {
 
 const defaultQueueOptions = {
     redis: {
-        port: process.env.REDIS_PORT || global.redisClient ? global.redisClient.options.port : {},
+        port: process.env.REDIS_PORT || global.redisClient ? global.redisClient.options.socket.port : {},
         host: process.env.REDIS_HOST ||
             (global.redisClient ?
                 (global.redisClient.options.host ?
@@ -64,11 +66,9 @@ exports.bq_logging = async function(options) {
     console_logging = this.parseOptional(options.console_logging, 'string', 'error');
     file_logging = this.parseOptional(options.file_logging, 'string', 'none');
     bullLog = this.parseOptional(options.bull_logging, 'boolean', false);
-
-    bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQ");
-
+    opensearch_logging = this.parseOptional(options.opensearch_logging, 'boolean', false);
+    bq_logger = bullLogging.setupWinston(console_logging, file_logging, "BullQ", opensearch_logging);
     bq_logger.info('Logging configuration updated');
-
     return { "response": 'Logging configuration updated' }
 }
 
@@ -356,14 +356,92 @@ exports.queue_resume = async function(options) {
         return responseMessages.noredis;
     }
 };
+exports.get_all_jobs = async function(options) {
+    if (redisReady) {
+      let queueNames = options.queue_names || [];
+      if (queueNames.length === 0) {
+        return responseMessages['noqueuenames'];
+        
+      }
+      let splitNames = queueNames.split(',');
+      let jobs = [];
+      for (let i = 0; i < splitNames.length; i++) {
+        let queueName = splitNames[i];
+        setupQueue(queueName);
+        
+        if (bullQueues[queueName]) {
+          let job_status = this.parseRequired(options.job_status, 'string', 'parameter job_status is required.');
+          let queueJobs;
+          
+          switch (job_status) {
+            case 'all':
+              queueJobs = await bullQueues[queueName].getJobs().catch(console.error);
+              break;
+            case 'failed':
+              queueJobs = await bullQueues[queueName].getFailed().catch(console.error);
+              break;
+            case 'completed':
+              queueJobs = await bullQueues[queueName].getCompleted().catch(console.error);
+              break;
+            case 'delayed':
+              queueJobs = await bullQueues[queueName].getDelayed().catch(console.error);
+              break;
+            case 'waiting':
+              queueJobs = await bullQueues[queueName].getWaiting().catch(console.error);
+              break;
+            case 'active':
+              queueJobs = await bullQueues[queueName].getActive().catch(console.error);
+              break;
+            default:
+              return responseMessages['invalidstatus'];
+          }
+          
+          if (queueJobs) {
+            jobs.push(
+              ...queueJobs.map(job => {
+                let status;
+                if (job.failedReason) {
+                  status = 'failed';
+                } else if (job.finishedOn) {
+                  status = 'completed';
+                } else if (job.delay > 0) {
+                  status = 'delayed';
+                } else if (job.processedOn) {
+                  status = 'active';
+                } else {
+                  status = 'waiting';
+                }
+                
+                return {
+                  queueName: queueName,
+                  id: job.id,
+                  name: job.name,
+                  status: status.toUpperCase(),
+                  data: job.data,
+                  opts: job.opts,
+                  progress: job.progress(),
+                  delay: job.delay,
+                  timestamp: Math.floor(job.timestamp / 1000),
+                  attemptsMade: job.attemptsMade,
+                  failedReason: job.failedReason,
+                  stacktrace: job.stacktrace,
+                  returnvalue: job.returnvalue,
+                  finishedOn: Math.floor(job.finishedOn / 1000),
+                  processedOn: Math.floor(job.processedOn / 1000)
+                };
+              })
+            );
+          }
+        }
+      }
+      return jobs;
+}
+}
 exports.get_jobs = async function(options) {
 
     bq_logger.debug('Get jobs start');
 
     if (redisReady) {
-        bq_logger.debug('Redis ready');
-        bq_logger.debug('Options: ' + JSON.stringify(options));
-
         let queueName = this.parseRequired(options.queue_name, 'string', 'Queue name is required');
 
         setupQueue(queueName);
@@ -518,8 +596,80 @@ exports.add_job = async function(options) {
 
         let queueName = this.parseRequired(options.queue_name, 'string', 'Queue name is required');
         let remove_on_complete = this.parseOptional(options.remove_on_complete, 'boolean', false);
-        let attempts = parseInt(this.parseOptional(options.attempts, '*', 1));
+        const keep_completed_jobs = this.parseOptional(
+            options.keep_completed_jobs,
+            "number",
+            null
+        );
 
+        if (keep_completed_jobs !== null) {
+            remove_on_complete = keep_completed_jobs;
+        }
+        
+        let remove_on_fail;
+
+        remove_on_fail = this.parseOptional(options.remove_on_fail, "boolean");
+
+        const keep_failed_jobs = this.parseOptional(
+            options.keep_failed_jobs,
+            "number",
+            null
+        );
+
+        if (keep_failed_jobs !== null) {
+            remove_on_fail = keep_failed_jobs;
+        }
+
+        let attempts = parseInt(this.parseOptional(options.attempts, "*", 1));
+        if (attempts <= 0) {
+            throw new Error("The number of attempts must be a positive integer.");
+        }
+
+        let attempts_delay = parseInt(
+            this.parseOptional(options.attempts_delay, "*", 0)
+        );
+        if (attempts_delay < 0) {
+            throw new Error(
+                "The delay between attempts must be a non-negative integer."
+            );
+        }
+
+        let backoff_type = this.parseOptional(
+            options.backoff_type,
+            "string",
+            "fixed"
+        );
+        if (backoff_type !== "fixed" && backoff_type !== "exponential") {
+            throw new Error(
+                "The backoff type must be either 'fixed' or 'exponential'."
+            );
+        }
+
+        let priority = parseInt(this.parseOptional(options.priority, "number"));
+        let repeat = this.parseOptional(options.repeatable, "boolean", false);
+
+        let repeat_every = this.parseOptional(
+            options.repeat_interval,
+            "number",
+            null
+        );
+        if (repeat_every !== null && repeat_every <= 0) {
+            throw new Error("The repeat interval must be a positive integer.");
+        }
+
+        let repeat_limit = this.parseOptional(options.repeat_limit, "number", null);
+        if (repeat_limit !== null && repeat_limit <= 0) {
+            throw new Error("The repeat limit must be a positive integer.");
+        }
+
+        let repeat_pattern = this.parseOptional(
+            options.repeat_pattern,
+            "string",
+            null
+        );
+        if (repeat_pattern !== null && !isValidCron(repeat_pattern)) {
+            throw new Error("The repeat pattern must be a valid cron pattern.");
+        }
         setupQueue(queueName);
 
         let libraryFile = this.parseRequired(options.library_file, 'string', 'parameter library_file is required.');
@@ -536,7 +686,33 @@ exports.add_job = async function(options) {
         }
 
         var jobData = this.parse(options.bindings) || {}
+        let jobOptions = {
+            delay: delay_ms,
+            removeOnComplete: remove_on_complete,
+            removeOnFail: remove_on_fail,
+            attempts: attempts,
+        };
+        if (attempts > 1) {
+            jobOptions.backoff = {
+                type: backoff_type,
+                delay: attempts_delay,
+            };
+        }
 
+        if (priority !== null) {
+            jobOptions.priority = priority;
+        }
+
+        let repeatOptions = {};
+        if (repeat) {
+            if (repeat_every) repeatOptions.every = repeat_every;
+            if (repeat_limit) repeatOptions.limit = repeat_limit;
+            if (repeat_pattern) repeatOptions.cron = repeat_pattern;
+        }
+
+        if (Object.keys(repeatOptions).length !== 0) {
+            jobOptions.repeat = repeatOptions;
+        }
 
         if (processorTypes[queueName] == 'library' || !workerCounts[queueName]) {
             const job = await bullQueues[queueName].add({
@@ -544,12 +720,8 @@ exports.add_job = async function(options) {
                 jobData: jobData,
                 action: libraryName,
                 bullLog: bullLog,
-                loggerOptions: { console_logging: console_logging, file_logging: file_logging }
-            }, {
-                delay: delay_ms,
-                removeOnComplete: remove_on_complete,
-                attempts: attempts
-            }).catch(console.error);
+                loggerOptions: { console_logging: console_logging, file_logging: file_logging, opensearch_logging: opensearch_logging}
+            }, jobOptions).catch(console.error);
 
             return { "job_id": job.id, "queue": queueName };
         } else {
@@ -578,9 +750,80 @@ exports.add_job_api = async function(options) {
 
         let queueName = this.parseRequired(options.queue_name, 'string', 'Queue name is required');
         let remove_on_complete = this.parseOptional(options.remove_on_complete, 'boolean', false);
-        let remove_on_fail = this.parseOptional(options.remove_on_fail, 'boolean', false);
-        let attempts = parseInt(this.parseOptional(options.attempts, '*', 1));
+        const keep_completed_jobs = this.parseOptional(
+            options.keep_completed_jobs,
+            "number",
+            null
+        );
 
+        if (keep_completed_jobs !== null) {
+            remove_on_complete = keep_completed_jobs;
+        }
+        
+        let remove_on_fail;
+
+        remove_on_fail = this.parseOptional(options.remove_on_fail, "boolean");
+
+        const keep_failed_jobs = this.parseOptional(
+            options.keep_failed_jobs,
+            "number",
+            null
+        );
+
+        if (keep_failed_jobs !== null) {
+            remove_on_fail = keep_failed_jobs;
+        }
+
+        let attempts = parseInt(this.parseOptional(options.attempts, "*", 1));
+        if (attempts <= 0) {
+            throw new Error("The number of attempts must be a positive integer.");
+        }
+
+        let attempts_delay = parseInt(
+            this.parseOptional(options.attempts_delay, "*", 0)
+        );
+        if (attempts_delay < 0) {
+            throw new Error(
+                "The delay between attempts must be a non-negative integer."
+            );
+        }
+
+        let backoff_type = this.parseOptional(
+            options.backoff_type,
+            "string",
+            "fixed"
+        );
+        if (backoff_type !== "fixed" && backoff_type !== "exponential") {
+            throw new Error(
+                "The backoff type must be either 'fixed' or 'exponential'."
+            );
+        }
+
+        let priority = parseInt(this.parseOptional(options.priority, "number"));
+        let repeat = this.parseOptional(options.repeatable, "boolean", false);
+
+        let repeat_every = this.parseOptional(
+            options.repeat_interval,
+            "number",
+            null
+        );
+        if (repeat_every !== null && repeat_every <= 0) {
+            throw new Error("The repeat interval must be a positive integer.");
+        }
+
+        let repeat_limit = this.parseOptional(options.repeat_limit, "number", null);
+        if (repeat_limit !== null && repeat_limit <= 0) {
+            throw new Error("The repeat limit must be a positive integer.");
+        }
+
+        let repeat_pattern = this.parseOptional(
+            options.repeat_pattern,
+            "string",
+            null
+        );
+        if (repeat_pattern !== null && !isValidCron(repeat_pattern)) {
+            throw new Error("The repeat pattern must be a valid cron pattern.");
+        }
         setupQueue(queueName);
 
         if (bullQueues[queueName]) {
@@ -602,6 +845,33 @@ exports.add_job_api = async function(options) {
             }
 
             var jobData = this.parse(options.bindings) || {}
+            let jobOptions = {
+                delay: delay_ms,
+                removeOnComplete: remove_on_complete,
+                removeOnFail: remove_on_fail,
+                attempts: attempts,
+            };
+            if (attempts > 1) {
+                jobOptions.backoff = {
+                    type: backoff_type,
+                    delay: attempts_delay,
+                };
+            }
+
+            if (priority !== null) {
+                jobOptions.priority = priority;
+            }
+
+            let repeatOptions = {};
+            if (repeat) {
+                if (repeat_every) repeatOptions.every = repeat_every;
+                if (repeat_limit) repeatOptions.limit = repeat_limit;
+                if (repeat_pattern) repeatOptions.cron = repeat_pattern;
+            }
+
+            if (Object.keys(repeatOptions).length !== 0) {
+                jobOptions.repeat = repeatOptions;
+            }
 
             if (processorTypes[queueName] == 'api' || !workerCounts[queueName]) {
                 bq_logger.debug('Add job to queue: ' + bullQueues[queueName]);
@@ -611,13 +881,8 @@ exports.add_job_api = async function(options) {
                     action: apiName,
                     baseURL: base_url,
                     bullLog: bullLog,
-                    loggerOptions: { console_logging: console_logging, file_logging: file_logging }
-                }, {
-                    delay: delay_ms,
-                    removeOnComplete: remove_on_complete,
-                    removeOnFail: remove_on_fail,
-                    attempts: attempts
-                }).catch((error) => {
+                    loggerOptions: { console_logging: console_logging, file_logging: file_logging, opensearch_logging: opensearch_logging}
+                }, jobOptions).catch((error) => {
                     bq_logger.error('Add job to queue failed: ' + error.message);
                 });
 
@@ -639,6 +904,109 @@ exports.add_job_api = async function(options) {
     } else {
         bq_logger.error('No Redis connection');
         bq_logger.debug('Create queue finish');
+        return responseMessages.noredis;
+    }
+};
+exports.get_repeatable_jobs = async function(options) {
+    bq_logger.debug("Get repeatable jobs start");
+
+    if (redisReady) {
+        bq_logger.debug(JSON.stringify(options));
+
+        let queueName = this.parseRequired(
+            options.queue_name,
+            "string",
+            "Queue name is required"
+        );
+
+        setupQueue(queueName);
+
+        if (bullQueues[queueName]) {
+            bq_logger.debug(`Queue: ${queueName} exists, so get the jobs`);
+
+            let jobs = null;
+            bq_logger.debug(`Getting repeatable jobs`);
+
+            try {
+                jobs = await bullQueues[queueName].getRepeatableJobs();
+            } catch (error) {
+                bq_logger.error(error.message);
+            }
+
+            bq_logger.info(`Returned ${jobs.length} jobs`);
+
+            return { jobs: jobs };
+        } else {
+            bq_logger.error(`Queue: ${queueName} does not exist so nothing returned`);
+
+            return responseMessages["noqueue"];
+        }
+    } else {
+        bq_logger.error("No Redis connection");
+        bq_logger.error("Get repeatable jobs finish");
+
+        return responseMessages.noredis;
+    }
+};
+function isValidCron(cron) {
+    try {
+        new CronJob(cron);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+exports.remove_repeatable_job = async function(options) {
+    bq_logger.debug("Remove repeatable job start");
+
+    if (redisReady) {
+        bq_logger.debug(options);
+
+        let queueName = this.parseRequired(
+            options.queue_name,
+            "string",
+            "Queue name is required"
+        );
+
+        let jobName = this.parseRequired(
+            options.job_name,
+            "string",
+            "Job name is required"
+        );
+
+        setupQueue(queueName);
+
+        if (bullQueues[queueName]) {
+            bq_logger.debug(`Queue: ${queueName} exists, removing job: ${jobName}`);
+
+            let repeatableJobs = await bullQueues[queueName].getRepeatableJobs();
+            let job = repeatableJobs.find((job) => job.name === jobName);
+
+            if (job) {
+                try {
+                    await bullQueues[queueName].removeRepeatableByKey(job.key);
+                    bq_logger.debug(`Job: ${jobName} successfully removed`);
+
+                    return { success: true };
+                } catch (error) {
+                    bq_logger.error(error.message);
+
+                    return { success: false, error: error.message };
+                }
+            } else {
+                bq_logger.error(`Job: ${jobName} does not exist`);
+
+                return { success: false, error: `Job: ${jobName} does not exist` };
+            }
+        } else {
+            bq_logger.error(`Queue: ${queueName} does not exist`);
+
+            return responseMessages["noqueue"];
+        }
+    } else {
+        bq_logger.error("No Redis connection");
+        bq_logger.error("Remove repeatable job finish");
+
         return responseMessages.noredis;
     }
 };
