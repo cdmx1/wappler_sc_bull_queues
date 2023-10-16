@@ -9,8 +9,8 @@
     icon : 'fad fa-history comp-exec',
     usedModules : {
 			node: {
-				 "bull": "^4.10.4",
-          "winston": "^3.8.2",
+				 "bull": "^4.11.4",
+          "winston": "^3.11.0",
           "winston-daily-rotate-file": "^4.7.1"
 			}
 		},
