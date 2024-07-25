@@ -19,11 +19,13 @@ var redisReady = false;
 if (process.env.REDIS_HOST || typeof global.redisClient !== 'undefined') {
     redisReady = true;
 }
-
-
 const defaultQueueOptions = {
     redis: {
-        port: process.env.REDIS_PORT || global.redisClient ? global.redisClient.options.socket.port : {},
+        port: process.env.REDIS_PORT ||
+            (global.redisClient ?
+                (global.redisClient.options.port ?
+                    global.redisClient.options.port :
+                    global.redisClient.options.socket.port) : {}),
         host: process.env.REDIS_HOST ||
             (global.redisClient ?
                 (global.redisClient.options.host ?
