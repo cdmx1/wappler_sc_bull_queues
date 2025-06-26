@@ -1,0 +1,27 @@
+{
+    "name": "@cdmx/wappler_sc_bull_queues",
+    "version": "0.0.4",
+    "type": "module",
+    "description": "Allows for the creation of one to many queues to offload the execution of Wappler library tasks, original repo: https://github.com/mebeingken/wappler-bull-queues",
+    "license": "MIT",
+    "author": {
+        "name": "cdmx1",
+        "url": "https://github.com/cdmx1"
+    },
+    "keywords": [
+        "wappler-extension",
+        "server-connect",
+        "wappler-sc-bull-queues"
+    ],
+    "scripts": {
+        "build": "rollup --config",
+        "publish-dry-run": "npm publish ./dist --access public --dry-run"
+    },
+    "dependencies": {
+        "redis": "latest",
+        "bull": "4.15.x",
+        "winston": "3.13.x",
+        "winston-daily-rotate-file": "5.0.x"
+    }
+}
+ 
